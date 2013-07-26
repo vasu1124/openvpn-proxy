@@ -58,7 +58,7 @@ import struct
 from M2Crypto import X509
 import ConfigParser
 import logging
-
+from logging.handlers import RotatingFileHandler
 
 # OPVPN Opcodes 
 P_CONTROL_HARD_RESET_CLIENT_V1  = 1
@@ -230,7 +230,9 @@ class PipeThread( Thread ):
                         self.dtsP.parseOpenVPN(data)
                                         
             except IOError as e:
-                if e.errno == 9 or e.errno == 10054:
+                if e.errno == 9 or \
+                   e.errno == 10054 or \
+                   e.errno==104:
                     pass
                 else:
                     Logger.exception('Caught IOError in main loop')
@@ -265,12 +267,11 @@ class PipeIntercept( PipeThread ):
                     if dataToServer:
                         dtsP.parseOpenVPN(dataToServer)
                                 
-#                   consume final message                       
+#                   consume message                       
                     if dtsP.msgflag == P_CONTROL_V1:
                         dtsP.msgflag = -1
                         tls = dtsP.parseTSLv1(dtsP.msg)                    
                         for t in tls:
-#                            print t
                             if t[0] == 22: #handshake
                                 hs = dtsP.parseTSLv1Handshake(t[3])
                                 if hs[0] == 11: #Certificate
@@ -381,9 +382,9 @@ if __name__ == '__main__':
     
     try:
         logfile  = Config.get('Logging', 'file', raw=False)
-        maxBytes = Config.getint('Logging', 'maxBytes', raw=False)
-        backupCount = Config.getint('Logging', 'backupCount', raw=False)
-        loghandler = logging.handlers.RotatingFileHandler(logfile, maxBytes=maxBytes, backupCount=backupCount)
+        maxBytes = Config.getint('Logging', 'maxBytes')
+        backupCount = Config.getint('Logging', 'backupCount')
+        loghandler = RotatingFileHandler(logfile, maxBytes=maxBytes, backupCount=backupCount)
     except ConfigParser.Error:
         pass
 
