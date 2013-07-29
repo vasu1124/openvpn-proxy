@@ -258,11 +258,12 @@ class PipeIntercept( PipeThread ):
                                         try:
                                             sinkhost  = lConfig.get(subject.CN, 'ip')
                                             sinkport  = lConfig.getint(subject.CN, 'port')
-                                            if self.sink.getpeername()[0] <> sinkhost or self.sink.getpeername()[1] <> sinkport:
+                                            sink = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+                                            sink.connect((sinkhost, sinkport))
+                                            if self.sink == sink:
                                                 Logger.info('Identified forward: %s, %s' % (sinkhost, sinkport ))
                                                 self.sink.close()
-                                                self.sink = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-                                                self.sink.connect((sinkhost, sinkport))
+                                                self.sink = sink
                                                 skip=0                                         
                                             else:
                                                 Logger.info('Keeping forward: %s, %s' % (sinkhost, sinkport))
