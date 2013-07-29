@@ -235,6 +235,8 @@ class PipeIntercept( PipeThread ):
 #                   consume message                           
                     if dtsP.msgOpcode == -1:
                         #no OpenVPN protocol
+                        self.source.close()
+                        self.sink.close()
                         Logger.info('No OpenVPN protocol!')
                         return
                     if dtsP.msgOpcode == P_CONTROL_V1 and not dtsP.msgFragment:
@@ -368,7 +370,7 @@ if __name__ == '__main__':
     sinkhost  = Config.get('sinkvpn', 'ip')
     sinkport  = Config.getint('sinkvpn', 'port')
     
-    Logger.debug('Local port: %d', proxyport)
+    Logger.debug('Listening = (%s, %d)', proxyip, proxyport)
     Logger.debug('Sink = (%s, %d)', sinkhost, sinkport)
     OVPNProxy( proxyip, proxyport, sinkhost, sinkport ).start()
       
