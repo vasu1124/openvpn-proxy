@@ -266,9 +266,11 @@ class PipeIntercept( PipeThread ):
                                                 self.sink = sink
                                                 skip=0                                         
                                             else:
+                                                sink.close()
                                                 Logger.info('Keeping forward: %s, %s' % (sinkhost, sinkport))
                                                 skip=0
                                         except:
+                                            sink.close()
                                             skip=0
                                             Logger.info('No Config for certificate found! Keeping forward: %s ' % (self.sink.getpeername(), ))
                                             
@@ -366,12 +368,16 @@ if __name__ == '__main__':
     Logger.addHandler(loghandler)
     Logger.info('Starting OVPN Proxy')
 
-    proxyip = Config.get('proxy', 'ip')
-    proxyport = Config.getint('proxy', 'port')
-    sinkhost  = Config.get('sinkvpn', 'ip')
-    sinkport  = Config.getint('sinkvpn', 'port')
-    
-    Logger.debug('Listening = (%s, %d)', proxyip, proxyport)
-    Logger.debug('Sink = (%s, %d)', sinkhost, sinkport)
-    OVPNProxy( proxyip, proxyport, sinkhost, sinkport ).start()
+    try:
+        proxyip = Config.get('proxy', 'ip')
+        proxyport = Config.getint('proxy', 'port')
+        sinkhost  = Config.get('sinkvpn', 'ip')
+        sinkport  = Config.getint('sinkvpn', 'port')
+        
+        Logger.debug('Listening = (%s, %d)', proxyip, proxyport)
+        Logger.debug('Sink = (%s, %d)', sinkhost, sinkport)
+        OVPNProxy( proxyip, proxyport, sinkhost, sinkport ).start()
+    except:
+        Logger.exception('Terminated with Error')
+
       
