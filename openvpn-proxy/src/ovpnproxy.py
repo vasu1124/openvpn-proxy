@@ -92,8 +92,8 @@ def quotechars( chars ):
 
 class OVPNParser():
     msg = ''
-    msgfrg = False
-    msgflag = -1
+    msgFragment = False
+    msgOpcode = -1
 
     def parseTSLv1Handshake22Certificates(self, data):
         certs = []
@@ -127,75 +127,83 @@ class OVPNParser():
         return ttls
         
     def parseOpenVPNfrag(self, data):
+        self.msgOpcode = -1
+        
+        if data.__len__() < struct.calcsize('>HBQB'):
+            return []
+        
         PacketLength, OpcodeKey, SessionID, MPIDArrayLength = struct.unpack('>HBQB', data[:struct.calcsize('>HBQB')])
         Opcode = (OpcodeKey & P_OPCODE_MASK) >> 3
         Key = OpcodeKey    & P_KEY_ID_MASK
         Logger.log(DDDEBUG, 'Opcode %d Key %d SessionID %d PacketLength %d MPIDArrayLength %d' % (Opcode, Key, SessionID, PacketLength, MPIDArrayLength))
         data = data[struct.calcsize('>HBQB'):]
+        msgfrag = data[:PacketLength]
         PacketLength -= struct.calcsize('>BQB')
+        data = data[PacketLength:]
+        
         if Opcode == P_CONTROL_HARD_RESET_CLIENT_V1:
-            data = data[PacketLength:]
+            self.msgOpcode = P_CONTROL_HARD_RESET_CLIENT_V1
             Logger.log(DDEBUG, 'P_CONTROL_HARD_RESET_CLIENT_V1')
         elif Opcode == P_CONTROL_HARD_RESET_SERVER_V1:
-            data = data[PacketLength:]
+            self.msgOpcode = P_CONTROL_HARD_RESET_SERVER_V1
             Logger.log(DDEBUG, 'P_CONTROL_HARD_RESET_SERVER_V1')
         elif Opcode == P_CONTROL_SOFT_RESET_V1:
-            data = data[PacketLength:]
+            self.msgOpcode = P_CONTROL_SOFT_RESET_V1
             Logger.log(DDEBUG, 'P_CONTROL_SOFT_RESET_V1')
         elif Opcode == P_DATA_V1:
-            data = data[PacketLength:]
+            self.msgOpcode = P_DATA_V1
             Logger.log(DDEBUG, 'P_DATA_V1')
         elif Opcode == P_CONTROL_HARD_RESET_CLIENT_V2:
-            data = data[PacketLength:]
+            self.msgOpcode = P_CONTROL_HARD_RESET_CLIENT_V2
             Logger.log(DDEBUG, 'P_CONTROL_HARD_RESET_CLIENT_V2')
         elif Opcode == P_ACK_V1:
-            data = data[PacketLength:]
+            self.msgOpcode = P_ACK_V1
             Logger.log(DDEBUG, 'P_ACK_V1')
         elif Opcode == P_CONTROL_V1:
+            self.msgOpcode = P_CONTROL_V1   
+                     
             if MPIDArrayLength == 0: 
-                MPID, = struct.unpack('>L', data[:struct.calcsize('>L')])  # @UnusedVariable
-                data = data[struct.calcsize('>L'):]
+                MPID, = struct.unpack('>L', msgfrag[:struct.calcsize('>L')])  # @UnusedVariable
+                msgfrag = msgfrag[struct.calcsize('>L'):]
                 PacketLength -= struct.calcsize('>L')
                 Logger.log(DDDEBUG, 'MPID %d' % (MPID, ))
             elif MPIDArrayLength >= 1:
-                data = data[struct.calcsize('>L')*MPIDArrayLength:] # jump over MPIDA-Elements
-                RemoteSessionID, MPID = struct.unpack('>QL', data[:struct.calcsize('>QL')])  # @UnusedVariable
-                data = data[struct.calcsize('>QL'):]
+                msgfrag = msgfrag[struct.calcsize('>L')*MPIDArrayLength:] # jump over MPIDA-Elements
+                RemoteSessionID, MPID = struct.unpack('>QL', msgfrag[:struct.calcsize('>QL')])  # @UnusedVariable
+                msgfrag = msgfrag[struct.calcsize('>QL'):]
                 PacketLength -= struct.calcsize('>QL') + struct.calcsize('>L')*MPIDArrayLength
                 Logger.log(DDDEBUG, 'MPID %d RemoteSessionID %d' % (MPID, RemoteSessionID))
             
-            msgfrag = data[:PacketLength]
-            data = data[PacketLength:]
-            if msgfrag.__len__() == 100:
-                if not self.msgfrg:         
-                    self.msgfrg = True
-                    self.msg = msgfrag
+            if PacketLength == 100:
+                if not self.msgFragment:         
+                    self.msgFragment = True
+                    self.msg = msgfrag[:PacketLength]
                     Logger.log(DDEBUG, 'frag init P_CONTROL_V1')
                 else:
-                    self.msg += msgfrag
+                    self.msg += msgfrag[:PacketLength]
                     Logger.log(DDEBUG, 'frag P_CONTROL_V1')
-            elif self.msgfrg:
-                    self.msgfrg = False
-                    self.msg += msgfrag                                        
-                    self.msgflag = P_CONTROL_V1
+            elif self.msgFragment:
+                    self.msgFragment = False
+                    self.msg += msgfrag[:PacketLength]                                        
                     Logger.log(DDEBUG, 'fg P_CONTROL_V1')
             else:
-                    self.msgfrg = False
-                    self.msg = msgfrag                                        
-                    self.msgflag = P_CONTROL_V1
+                    self.msgFragment = False
+                    self.msg = msgfrag[:PacketLength]                                        
                     Logger.log(DDEBUG, 'P_CONTROL_V1')
+                    
         elif Opcode == P_CONTROL_HARD_RESET_SERVER_V2:
-            data = data[PacketLength:]
+            self.msgOpcode = P_CONTROL_HARD_RESET_SERVER_V2            
             Logger.log(DDEBUG, 'P_CONTROL_HARD_RESET_SERVER_V2')  
         else:
             data = []
+
         return data
 
     def parseOpenVPN(self, data):
         while True:
             data = self.parseOpenVPNfrag(data)
             if data.__len__() == 0 : break
-        return self.msgflag
+        return self.msgOpcode
     
 class PipeThread( Thread ):   
 
@@ -267,9 +275,13 @@ class PipeIntercept( PipeThread ):
                     if dataToServer:
                         dtsP.parseOpenVPN(dataToServer)
                                 
-#                   consume message                       
-                    if dtsP.msgflag == P_CONTROL_V1:
-                        dtsP.msgflag = -1
+#                   consume message                           
+                    if dtsP.msgOpcode == -1:
+                        #no OpenVPN protocol
+                        Logger.info('No OpenVPN protocol!')
+                        return
+                    if dtsP.msgOpcode == P_CONTROL_V1 and not dtsP.msgFragment:
+#                        dtsP.msgOpcode = -1
                         tls = dtsP.parseTSLv1(dtsP.msg)                    
                         for t in tls:
                             if t[0] == 22: #handshake
@@ -306,18 +318,14 @@ class PipeIntercept( PipeThread ):
                                         source2Sink = PipeThread(self.source, self.sink)
                                         sink2Source = PipeThread(self.sink, self.source, skip=skip)                                            
                                         Thread.setName(source2Sink, '%s->%s' % (self.source.getpeername(), self.sink.getpeername()))
-                                        Thread.setName(sink2Source, '%s<-%s' % (self.source.getpeername(), self.sink.getpeername()))
                                         source2Sink.start()
+                                        Thread.setName(sink2Source, '%s<-%s' % (self.source.getpeername(), self.sink.getpeername()))
                                         sink2Source.start()
                                         return
 
-#                   message consumed                               
-                    if not dtsP.msgfrg:
-                        dtsP.msg = ''                    
-
                     if dataToServer: 
-                        Logger.log(DDDEBUG, '\n' + hexdump(dataToServer, ' ', 40))
-                        Logger.log(DDEBUG, 'Sending to %s' % (self.sink.getpeername(),) )
+                        Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
+                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
                         self.sink.send( dataToServer )
 
                     dataFromServer = None
@@ -327,13 +335,15 @@ class PipeIntercept( PipeThread ):
                     except socket.timeout:
                         pass
                     
-                    if dataFromServer: self.source.send( dataFromServer )
                     if dataFromServer:
                         dtcP.parseOpenVPN(dataFromServer)
 
-#                   message consumed                               
-                    if not dtcP.msgfrg:
-                        dtcP.msg = ''                    
+#                   consume message
+                        
+                    if dataFromServer:                        
+                        Logger.log(DDDEBUG, '<-\n' + hexdump(dataFromServer, ' ', 40))
+                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.source.getpeername(),) )
+                        self.source.send( dataFromServer )
                 
                 except IOError as e:
                     if e.errno == 9 or e.errno == 10054:
