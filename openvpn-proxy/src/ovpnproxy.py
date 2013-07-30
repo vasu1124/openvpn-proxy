@@ -228,7 +228,12 @@ class PipeIntercept( PipeThread ):
                         dataToServer = self.source.recv( 9000 )
                     except socket.timeout:
                         pass
-                
+                    
+                    if dataToServer: 
+                        Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
+                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
+                        self.sink.send( dataToServer )
+                                        
                     if dataToServer:
                         dtsP.parseOpenVPN(dataToServer)
                                 
@@ -239,6 +244,7 @@ class PipeIntercept( PipeThread ):
                         self.sink.close()
                         Logger.info('No OpenVPN protocol!')
                         return
+                    
                     if dtsP.msgOpcode == P_CONTROL_V1 and not dtsP.msgFragment:
 #                        dtsP.msgOpcode = -1
                         tls = dtsP.parseTSLv1(dtsP.msg)                    
@@ -260,35 +266,31 @@ class PipeIntercept( PipeThread ):
                                             sinkport  = lConfig.getint(subject.CN, 'port')
                                             sink = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
                                             sink.connect((sinkhost, sinkport))
-                                            if self.sink == sink:
-                                                Logger.info('Identified forward: %s, %s' % (sinkhost, sinkport ))
+                                            if self.sink.getpeername()[0] == sink.getpeername()[0] and \
+                                               self.sink.getpeername()[1] == sink.getpeername()[1]:
+                                                Logger.info('Identified forward: %s' % (sink.getpeername(),  ))
                                                 self.sink.close()
                                                 self.sink = sink
                                                 skip=0                                         
                                             else:
                                                 sink.close()
-                                                Logger.info('Keeping forward: %s, %s' % (sinkhost, sinkport))
-                                                skip=0
+                                                Logger.info('Keeping forward: %s' % (self.sink.getpeername(), ))
                                         except:
                                             if 'sink' in locals(): sink.close() #necessary? 
-                                            skip=0
                                             Logger.info('No Config for certificate found! Keeping forward: %s ' % (self.sink.getpeername(), ))
                                             
                                             
                                         self.source.setblocking(True)
                                         self.sink.setblocking(True)
                                         source2Sink = PipeThread(self.source, self.sink)
-                                        sink2Source = PipeThread(self.sink, self.source, skip=skip)                                            
+                                        sink2Source = PipeThread(self.sink, self.source)                                            
                                         Thread.setName(source2Sink, '%s->%s' % (self.source.getpeername(), self.sink.getpeername()))
                                         source2Sink.start()
                                         Thread.setName(sink2Source, '%s<-%s' % (self.source.getpeername(), self.sink.getpeername()))
                                         sink2Source.start()
                                         return
 
-                    if dataToServer: 
-                        Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
-                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
-                        self.sink.send( dataToServer )
+##############################################
 
                     dataFromServer = None
                     
