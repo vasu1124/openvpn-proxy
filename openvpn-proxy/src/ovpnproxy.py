@@ -149,7 +149,7 @@ class OVPNParser():
                     Logger.log(DDEBUG, 'P_CONTROL_V1')
                     
         elif Opcode == P_CONTROL_HARD_RESET_SERVER_V2:
-            self.msgOpcode = P_CONTROL_HARD_RESET_SERVER_V2            
+            self.msgOpcode = P_CONTROL_HARD_RESET_SERVER_V2
             Logger.log(DDEBUG, 'P_CONTROL_HARD_RESET_SERVER_V2')  
         else:
             data = []
@@ -181,18 +181,14 @@ class PipeThread( Thread ):
         Logger.info( '... starting' )
         while True:
             try:
-                if self.skip>0:
-                    self.skip -= 1
-                    Logger.log(DDEBUG, 'Skipping msg')
-                else:                                                
-                    data = self.source.recv( 9000 )
-                    if not data: break
-                    Logger.log(DDDEBUG, '\n' + hexdump(data, ' ', 40))
+                data = self.source.recv( 9000 )
+                if not data: break
 
-                    if Logger.getEffectiveLevel() == DDEBUG:
-                        self.dtsP.parseOpenVPN(data)
-#                   send data
-                    self.sink.send( data )
+                Logger.log(DDDEBUG, '\n' + hexdump(data, ' ', 40))
+                if Logger.getEffectiveLevel() == DDEBUG:
+                    self.dtsP.parseOpenVPN(data)
+#               send data
+                self.sink.send( data )
                                         
             except IOError as e:
                 if e.errno == 9 or \
@@ -225,15 +221,16 @@ class PipeIntercept( PipeThread ):
             self.dtsP.parseOpenVPN(dataToServer)
                     
 #                   consume message                           
-        if self.dtsP.msgOpcode == -1:
+        if dataToServer and self.dtsP.msgOpcode == -1:
             #no OpenVPN protocol
             self.source.close()
             self.sink.close()
             Logger.info('No OpenVPN protocol!')
             return False
         
-        if self.dtsP.msgOpcode == P_CONTROL_V1 and not self.dtsP.msgFragment:
-#                        dtsP.msgOpcode = -1
+        if dataToServer \
+           and self.dtsP.msgOpcode == P_CONTROL_V1 \
+           and not self.dtsP.msgFragment:
             tls = self.dtsP.parseTSLv1(self.dtsP.msg)                    
             for t in tls:
                 if t[0] == 22: #handshake
@@ -259,7 +256,6 @@ class PipeIntercept( PipeThread ):
                                     Logger.info('Identified forward: %s' % (sink.getpeername(),  ))
                                     self.sink.close()
                                     self.sink = sink
-                                    skip=0                                         
                                 else:
                                     sink.close()
                                     Logger.info('Keeping forward: %s' % (self.sink.getpeername(), ))
@@ -273,8 +269,7 @@ class PipeIntercept( PipeThread ):
                                 self.sink.close()
                                 self.source.close()
                                 return False
-                                
-                                
+
                             self.source.setblocking(True)
                             self.sink.setblocking(True)
                             source2Sink = PipeThread(self.source, self.sink)
