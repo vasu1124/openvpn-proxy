@@ -270,7 +270,7 @@ class PipeIntercept( PipeThread ):
                                                 Logger.info('Keeping forward: %s, %s' % (sinkhost, sinkport))
                                                 skip=0
                                         except:
-                                            if 'sink' in locals(): sink.close() #necessary?
+                                            if 'sink' in locals(): sink.close() #necessary? 
                                             skip=0
                                             Logger.info('No Config for certificate found! Keeping forward: %s ' % (self.sink.getpeername(), ))
                                             
