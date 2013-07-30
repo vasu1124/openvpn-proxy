@@ -187,12 +187,12 @@ class PipeThread( Thread ):
                 else:                                                
                     data = self.source.recv( 9000 )
                     if not data: break
-                    Logger.log(DDDEBUG, '\n' + hexdump(data, ' ', 40))                
-#                   send data
-                    self.sink.send( data )
-                    
+                    Logger.log(DDDEBUG, '\n' + hexdump(data, ' ', 40))
+
                     if Logger.getEffectiveLevel() == DDEBUG:
                         self.dtsP.parseOpenVPN(data)
+#                   send data
+                    self.sink.send( data )
                                         
             except IOError as e:
                 if e.errno == 9 or \
@@ -221,6 +221,7 @@ class PipeIntercept( PipeThread ):
             pass
                                                 
         if dataToServer:
+            Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
             self.dtsP.parseOpenVPN(dataToServer)
                     
 #                   consume message                           
@@ -287,7 +288,6 @@ class PipeIntercept( PipeThread ):
 ##############################################
 # must send data after parsing.
         if dataToServer: 
-            Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
             Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
             self.sink.send( dataToServer )
 ##############################################
@@ -303,8 +303,8 @@ class PipeIntercept( PipeThread ):
             pass
         
         if dataFromServer:
-            self.dtcP.parseOpenVPN(dataFromServer)
             Logger.log(DDDEBUG, '<-\n' + hexdump(dataFromServer, ' ', 40))
+            self.dtcP.parseOpenVPN(dataFromServer)
             Logger.log(DDEBUG, 'Sending Data to %s' % (self.source.getpeername(),) )
             self.source.send( dataFromServer )
         
