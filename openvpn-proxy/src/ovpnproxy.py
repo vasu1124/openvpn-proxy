@@ -262,9 +262,16 @@ class PipeIntercept( PipeThread ):
                                 else:
                                     sink.close()
                                     Logger.info('Keeping forward: %s' % (self.sink.getpeername(), ))
+                                    if dataToServer: #also send this fragment
+                                        Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
+                                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
+                                        self.sink.send( dataToServer )
                             except:
+                                Logger.info('No Config for certificate found!')
                                 if 'sink' in locals(): sink.close() #necessary? 
-                                Logger.info('No Config for certificate found! Keeping forward: %s ' % (self.sink.getpeername(), ))
+                                self.sink.close()
+                                self.source.close()
+                                return False
                                 
                                 
                             self.source.setblocking(True)
