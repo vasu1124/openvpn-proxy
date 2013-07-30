@@ -211,105 +211,111 @@ class PipeThread( Thread ):
         self.sink.close()
         PipeThread.pipes.remove( self )        
 
-class PipeIntercept( PipeThread ):   
+class PipeIntercept( PipeThread ):
+    
+    def passSource2Sink(self):
+        dataToServer = None
+        try:                
+            dataToServer = self.source.recv( 9000 )
+        except socket.timeout:
+            pass
+                                                
+        if dataToServer:
+            self.dtsP.parseOpenVPN(dataToServer)
+                    
+#                   consume message                           
+        if self.dtsP.msgOpcode == -1:
+            #no OpenVPN protocol
+            self.source.close()
+            self.sink.close()
+            Logger.info('No OpenVPN protocol!')
+            return False
         
+        if self.dtsP.msgOpcode == P_CONTROL_V1 and not self.dtsP.msgFragment:
+#                        dtsP.msgOpcode = -1
+            tls = self.dtsP.parseTSLv1(self.dtsP.msg)                    
+            for t in tls:
+                if t[0] == 22: #handshake
+                    hs = self.dtsP.parseTSLv1Handshake(t[3])
+                    if hs[0] == 11: #Certificate
+                        # found what we wanted, initiate handover
+                        certs = self.dtsP.parseTSLv1Handshake22Certificates(hs[2])
+                        for c in certs:
+                            x509 = X509.load_cert_string(c[1], X509.FORMAT_DER)
+                            subject = x509.get_subject()
+                            Logger.info('Identified incoming certificate: (CN=%s O=%s)' % (subject.CN, subject.O ))
+                            #dynamically reread the config file
+                            lConfig = ConfigParser.ConfigParser()
+                            lConfig.read('ovpnproxy.cfg')
+                            try:
+                                sinkhost  = lConfig.get(subject.CN, 'ip')
+                                sinkport  = lConfig.getint(subject.CN, 'port')
+                                sink = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+                                sink.connect((sinkhost, sinkport))
+                                
+                                if self.sink.getpeername()[0] != sink.getpeername()[0] or \
+                                   self.sink.getpeername()[1] != sink.getpeername()[1]:
+                                    Logger.info('Identified forward: %s' % (sink.getpeername(),  ))
+                                    self.sink.close()
+                                    self.sink = sink
+                                    skip=0                                         
+                                else:
+                                    sink.close()
+                                    Logger.info('Keeping forward: %s' % (self.sink.getpeername(), ))
+                            except:
+                                if 'sink' in locals(): sink.close() #necessary? 
+                                Logger.info('No Config for certificate found! Keeping forward: %s ' % (self.sink.getpeername(), ))
+                                
+                                
+                            self.source.setblocking(True)
+                            self.sink.setblocking(True)
+                            source2Sink = PipeThread(self.source, self.sink)
+                            sink2Source = PipeThread(self.sink, self.source)                                            
+                            Thread.setName(source2Sink, '%s->%s' % (self.source.getpeername(), self.sink.getpeername()))
+                            source2Sink.start()
+                            Thread.setName(sink2Source, '%s<-%s' % (self.source.getpeername(), self.sink.getpeername()))
+                            sink2Source.start()
+                            return False
+
+##############################################
+# must send data after parsing.
+        if dataToServer: 
+            Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
+            Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
+            self.sink.send( dataToServer )
+##############################################
+        return True
+    
+    
+    def passSink2Source(self):
+        dataFromServer = None
+        
+        try:
+            dataFromServer = self.sink.recv( 9000 )
+        except socket.timeout:
+            pass
+        
+        if dataFromServer:
+            self.dtcP.parseOpenVPN(dataFromServer)
+            Logger.log(DDDEBUG, '<-\n' + hexdump(dataFromServer, ' ', 40))
+            Logger.log(DDEBUG, 'Sending Data to %s' % (self.source.getpeername(),) )
+            self.source.send( dataFromServer )
+        
+        return True
+
     def run( self):
         Logger.info( '::: starting' )
 
         self.source.settimeout(0.1)
         self.sink.settimeout(0.1)
-        dtsP = OVPNParser()
-        dtcP = OVPNParser()
+        self.dtsP = OVPNParser()
+        self.dtcP = OVPNParser()
         try:  
             while True:
                 try:
-                    dataToServer = None
-                    try:                
-                        dataToServer = self.source.recv( 9000 )
-                    except socket.timeout:
-                        pass
-                                                            
-                    if dataToServer:
-                        dtsP.parseOpenVPN(dataToServer)
-                                
-#                   consume message                           
-                    if dtsP.msgOpcode == -1:
-                        #no OpenVPN protocol
-                        self.source.close()
-                        self.sink.close()
-                        Logger.info('No OpenVPN protocol!')
-                        return
-                    
-                    if dtsP.msgOpcode == P_CONTROL_V1 and not dtsP.msgFragment:
-#                        dtsP.msgOpcode = -1
-                        tls = dtsP.parseTSLv1(dtsP.msg)                    
-                        for t in tls:
-                            if t[0] == 22: #handshake
-                                hs = dtsP.parseTSLv1Handshake(t[3])
-                                if hs[0] == 11: #Certificate
-                                    # found what we wanted, initiate handover
-                                    certs = dtsP.parseTSLv1Handshake22Certificates(hs[2])
-                                    for c in certs:
-                                        x509 = X509.load_cert_string(c[1], X509.FORMAT_DER)
-                                        subject = x509.get_subject()
-                                        Logger.info('Identified incoming certificate: (CN=%s O=%s)' % (subject.CN, subject.O ))
-                                        #dynamically reread the config file
-                                        lConfig = ConfigParser.ConfigParser()
-                                        lConfig.read('ovpnproxy.cfg')
-                                        try:
-                                            sinkhost  = lConfig.get(subject.CN, 'ip')
-                                            sinkport  = lConfig.getint(subject.CN, 'port')
-                                            sink = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-                                            sink.connect((sinkhost, sinkport))
-                                            
-                                            if self.sink.getpeername()[0] != sink.getpeername()[0] or \
-                                               self.sink.getpeername()[1] != sink.getpeername()[1]:
-                                                Logger.info('Identified forward: %s' % (sink.getpeername(),  ))
-                                                self.sink.close()
-                                                self.sink = sink
-                                                skip=0                                         
-                                            else:
-                                                sink.close()
-                                                Logger.info('Keeping forward: %s' % (self.sink.getpeername(), ))
-                                        except:
-                                            if 'sink' in locals(): sink.close() #necessary? 
-                                            Logger.info('No Config for certificate found! Keeping forward: %s ' % (self.sink.getpeername(), ))
-                                            
-                                            
-                                        self.source.setblocking(True)
-                                        self.sink.setblocking(True)
-                                        source2Sink = PipeThread(self.source, self.sink)
-                                        sink2Source = PipeThread(self.sink, self.source)                                            
-                                        Thread.setName(source2Sink, '%s->%s' % (self.source.getpeername(), self.sink.getpeername()))
-                                        source2Sink.start()
-                                        Thread.setName(sink2Source, '%s<-%s' % (self.source.getpeername(), self.sink.getpeername()))
-                                        sink2Source.start()
-                                        return
+                    if not self.passSource2Sink(): return
 
-# must send data after parsing.
-                    if dataToServer: 
-                        Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
-                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
-                        self.sink.send( dataToServer )
-
-##############################################
-
-                    dataFromServer = None
-                    
-                    try:
-                        dataFromServer = self.sink.recv( 9000 )
-                    except socket.timeout:
-                        pass
-                    
-                    if dataFromServer:
-                        dtcP.parseOpenVPN(dataFromServer)
-
-#                   consume message
-                        
-                    if dataFromServer:                        
-                        Logger.log(DDDEBUG, '<-\n' + hexdump(dataFromServer, ' ', 40))
-                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.source.getpeername(),) )
-                        self.source.send( dataFromServer )
+                    if not self.passSink2Source(): return
                 
                 except IOError as e:
                     if e.errno == 9 or e.errno == 10054:
@@ -338,14 +344,17 @@ class OVPNProxy( Thread ):
     
     def run( self ):
         while True:
-            incoming, address = self.sock.accept()
-            Logger.info( 'Creating new session for %s %s ' % address )
-            fwd = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-            fwd.connect(( self.newhost, self.newport ))
-            pt = PipeIntercept(incoming, fwd)
-            Thread.setName(pt, '%s<->%s' % (incoming.getpeername(), fwd.getpeername()))
-            pt.start()
-            Logger.debug( '%s pipes active' % len( PipeThread.pipes ))
+            try:
+                incoming, address = self.sock.accept()
+                Logger.info( 'Creating new session for %s %s ' % address )
+                fwd = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+                fwd.connect(( self.newhost, self.newport ))
+                pt = PipeIntercept(incoming, fwd)
+                Thread.setName(pt, '%s<->%s' % (incoming.getpeername(), fwd.getpeername()))
+                pt.start()
+                Logger.debug( '%s pipes active' % len( PipeThread.pipes ))
+            except:
+                Logger.exception('Failed with Error')
             
 if __name__ == '__main__':
     logging.addLevelName(DDEBUG, "DDEBUG")
