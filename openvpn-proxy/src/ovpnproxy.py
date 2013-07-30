@@ -228,12 +228,7 @@ class PipeIntercept( PipeThread ):
                         dataToServer = self.source.recv( 9000 )
                     except socket.timeout:
                         pass
-                    
-                    if dataToServer: 
-                        Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
-                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
-                        self.sink.send( dataToServer )
-                                        
+                                                            
                     if dataToServer:
                         dtsP.parseOpenVPN(dataToServer)
                                 
@@ -266,8 +261,9 @@ class PipeIntercept( PipeThread ):
                                             sinkport  = lConfig.getint(subject.CN, 'port')
                                             sink = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
                                             sink.connect((sinkhost, sinkport))
-                                            if self.sink.getpeername()[0] == sink.getpeername()[0] and \
-                                               self.sink.getpeername()[1] == sink.getpeername()[1]:
+                                            
+                                            if self.sink.getpeername()[0] != sink.getpeername()[0] or \
+                                               self.sink.getpeername()[1] != sink.getpeername()[1]:
                                                 Logger.info('Identified forward: %s' % (sink.getpeername(),  ))
                                                 self.sink.close()
                                                 self.sink = sink
@@ -289,6 +285,12 @@ class PipeIntercept( PipeThread ):
                                         Thread.setName(sink2Source, '%s<-%s' % (self.source.getpeername(), self.sink.getpeername()))
                                         sink2Source.start()
                                         return
+
+# must send data after parsing.
+                    if dataToServer: 
+                        Logger.log(DDDEBUG, '->\n' + hexdump(dataToServer, ' ', 40))
+                        Logger.log(DDEBUG, 'Sending Data to %s' % (self.sink.getpeername(),) )
+                        self.sink.send( dataToServer )
 
 ##############################################
 
